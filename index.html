@@ -11,7 +11,6 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="config.js"></script>
 </head>
 <body>
@@ -26,25 +25,14 @@
         <h1>Seguimiento de tu equipo</h1>
         <p>Consulta avance, acceso, actividades, calificaciones, asistencia y alertas de los cursos contratados por tu empresa.</p>
         <form id="loginForm">
-          <div class="field"><label for="loginEmail">Correo</label><input id="loginEmail" type="email" autocomplete="email" required></div>
-          <div class="field"><label for="loginPassword">Contraseña</label><input id="loginPassword" type="password" autocomplete="current-password" required></div>
+          <div class="field"><label for="loginEmail">Usuario / correo</label><input id="loginEmail" type="email" autocomplete="username" required></div>
+          <div class="field"><label for="loginPassword">Clave del tablero</label><input id="loginPassword" type="password" autocomplete="current-password" required></div>
           <div id="loginStatus" class="status-box hidden"></div>
-          <div class="auth-actions"><button class="btn btn-primary" type="submit">Ingresar al tablero</button><button class="link-btn" type="button" id="forgotBtn">Olvidé mi contraseña</button></div>
+          <div class="auth-actions"><button class="btn btn-primary" type="submit">Ingresar al tablero</button></div>
         </form>
       </div>
 
-      <div id="passwordPanel" class="hidden">
-        <h1>Define tu contraseña</h1>
-        <p>Estás activando o recuperando tu acceso al tablero corporativo.</p>
-        <form id="passwordForm">
-          <div class="field"><label for="newPassword">Nueva contraseña</label><input id="newPassword" type="password" minlength="8" autocomplete="new-password" required></div>
-          <div class="field"><label for="newPassword2">Repite la contraseña</label><input id="newPassword2" type="password" minlength="8" autocomplete="new-password" required></div>
-          <div id="passwordStatus" class="status-box hidden"></div>
-          <button class="btn btn-primary" type="submit">Guardar contraseña y continuar</button>
-        </form>
-      </div>
-
-      <div class="auth-note">Acceso privado para empresas clientes · <a class="admin-link" href="admin.html">Administración</a></div>
+      <div class="auth-note">Las credenciales son emitidas por Academia Movida SST · <a class="admin-link" href="admin.html">Administración</a></div>
     </div>
   </section>
 
