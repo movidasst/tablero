@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>Tablero Corporativo SST | Academia Movida SST</title>
+  <meta name="description" content="Portal privado para seguimiento de capacitación corporativa en Seguridad y Salud en el Trabajo.">
+  <meta name="robots" content="noindex,nofollow,noarchive">
+  <meta name="theme-color" content="#00205b">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="config.js"></script>
+</head>
+<body>
+  <section class="auth-shell" id="authShell">
+    <div class="auth-card">
+      <div class="brand-lockup">
+        <img id="authLogo" alt="La Movida SST">
+        <div><strong>Academia Movida SST</strong><small>Tablero Corporativo</small></div>
+      </div>
+
+      <div id="loginPanel">
+        <h1>Seguimiento de tu equipo</h1>
+        <p>Consulta avance, acceso, actividades, calificaciones, asistencia y alertas de los cursos contratados por tu empresa.</p>
+        <form id="loginForm">
+          <div class="field"><label for="loginEmail">Correo</label><input id="loginEmail" type="email" autocomplete="email" required></div>
+          <div class="field"><label for="loginPassword">Contraseña</label><input id="loginPassword" type="password" autocomplete="current-password" required></div>
+          <div id="loginStatus" class="status-box hidden"></div>
+          <div class="auth-actions"><button class="btn btn-primary" type="submit">Ingresar al tablero</button><button class="link-btn" type="button" id="forgotBtn">Olvidé mi contraseña</button></div>
+        </form>
+      </div>
+
+      <div id="passwordPanel" class="hidden">
+        <h1>Define tu contraseña</h1>
+        <p>Estás activando o recuperando tu acceso al tablero corporativo.</p>
+        <form id="passwordForm">
+          <div class="field"><label for="newPassword">Nueva contraseña</label><input id="newPassword" type="password" minlength="8" autocomplete="new-password" required></div>
+          <div class="field"><label for="newPassword2">Repite la contraseña</label><input id="newPassword2" type="password" minlength="8" autocomplete="new-password" required></div>
+          <div id="passwordStatus" class="status-box hidden"></div>
+          <button class="btn btn-primary" type="submit">Guardar contraseña y continuar</button>
+        </form>
+      </div>
+
+      <div class="auth-note">Acceso privado para empresas clientes · <a class="admin-link" href="admin.html">Administración</a></div>
+    </div>
+  </section>
+
+  <main class="app-shell hidden" id="appShell">
+    <header class="topbar">
+      <div class="container topbar-inner">
+        <div class="topbar-brand"><img id="topLogo" alt="La Movida SST"><div><strong id="companyName">Empresa</strong><small>Tablero de capacitación corporativa</small></div></div>
+        <div class="topbar-actions">
+          <select id="companySwitch" class="company-switch hidden" aria-label="Cambiar empresa"></select>
+          <div class="avatar" id="userAvatar">U</div>
+          <button class="btn btn-secondary btn-small no-print" id="logoutBtn" type="button">Salir</button>
+        </div>
+      </div>
+    </header>
+
+    <nav class="bottom-nav no-print" aria-label="Secciones del tablero">
+      <button class="active" data-view="summary"><span>⌂</span><span>Resumen</span></button>
+      <button data-view="courses"><span>▤</span><span>Cursos</span></button>
+      <button data-view="people"><span>♙</span><span>Personas</span></button>
+      <button data-view="alerts"><span>!</span><span>Alertas</span></button>
+      <button data-view="report"><span>⇩</span><span>Informe</span></button>
+    </nav>
+
+    <div class="page">
+      <div class="container">
+        <div class="page-head">
+          <div><h1 id="pageTitle">Resumen ejecutivo</h1><p id="pageSubtitle">Estado actual de la formación de tu equipo.</p><div class="sync-note" id="syncNote"></div></div>
+          <div class="page-actions no-print"><button class="btn btn-secondary" id="refreshBtn" type="button">Actualizar datos</button></div>
+        </div>
+
+        <div id="globalStatus"></div>
+        <div id="loadingBlock" class="loading hidden"><div class="spinner"></div><strong>Consultando Moodle y la información de tu empresa…</strong><div class="muted">La primera actualización puede tardar unos segundos.</div></div>
+
+        <section class="view active" id="view-summary">
+          <div class="metric-grid" id="metricGrid"></div>
+          <div class="section-card"><div class="section-head"><h2>Situación por curso</h2><span class="badge info" id="summaryCourseCount">0 cursos</span></div><div class="section-body"><div class="course-grid" id="summaryCourses"></div></div></div>
+          <div class="section-card"><div class="section-head"><h2>Atención prioritaria</h2><button class="link-btn" type="button" data-open-view="alerts">Ver todas</button></div><div class="section-body"><div class="alert-list" id="summaryAlerts"></div></div></div>
+        </section>
+
+        <section class="view" id="view-courses">
+          <div class="section-card"><div class="section-head"><h2>Cursos contratados</h2></div><div class="section-body"><div class="course-grid" id="courseGrid"></div></div></div>
+        </section>
+
+        <section class="view" id="view-people">
+          <div class="section-card"><div class="section-head"><h2>Empleados y avance</h2></div><div class="section-body">
+            <div class="filters no-print"><input id="peopleSearch" type="search" placeholder="Buscar por nombre, correo o documento"><select id="peopleCourse"><option value="">Todos los cursos</option></select><select id="peopleStatus"><option value="">Todos los estados</option><option value="active">Activo</option><option value="inactive">Inactivo</option><option value="never">Nunca ingresó</option><option value="completed">Completado</option><option value="attention">Requiere atención</option></select></div>
+            <div class="table-wrap"><table class="data-table"><thead><tr><th>Persona</th><th>Curso</th><th>Acceso</th><th>Avance</th><th>Nota</th><th>Asistencia</th><th>Estado</th></tr></thead><tbody id="peopleBody"></tbody></table></div>
+          </div></div>
+        </section>
+
+        <section class="view" id="view-alerts">
+          <div class="section-card"><div class="section-head"><h2>Alertas de seguimiento</h2><span class="badge warn" id="alertCount">0</span></div><div class="section-body"><div class="alert-list" id="alertsList"></div></div></div>
+        </section>
+
+        <section class="view" id="view-report">
+          <div class="report-print-title"><h1>Informe de avance de capacitación</h1><p id="printCompany"></p></div>
+          <div class="report-hero">
+            <div class="report-summary"><h3>Informe ejecutivo</h3><p>Consolida participación, acceso, avance, calificaciones, asistencia y alertas de los cursos empresariales visibles en este tablero.</p></div>
+            <div class="page-actions no-print"><button class="btn btn-primary" id="printBtn" type="button">Guardar como PDF</button><button class="btn btn-secondary" id="csvBtn" type="button">Descargar CSV</button></div>
+          </div>
+          <div class="metric-grid" id="reportMetrics" style="margin-top:16px"></div>
+          <div class="section-card"><div class="section-head"><h2>Resumen por curso</h2></div><div class="section-body"><div class="table-wrap"><table class="data-table"><thead><tr><th>Curso</th><th>Participantes</th><th>Activos</th><th>Completados</th><th>Avance prom.</th><th>Nota prom.</th><th>Asistencia</th><th>Alertas</th></tr></thead><tbody id="reportCourseBody"></tbody></table></div></div></div>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
