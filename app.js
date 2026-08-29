@@ -1,6 +1,7 @@
 (() => {
   const cfg = window.TABLERO_CONFIG;
   const $ = id => document.getElementById(id);
+  const HOURS_PER_COURSE = Math.max(0, Number(cfg.trainingHoursPerCourse || 4));
   const state = { token: localStorage.getItem('tablero_portal_token') || '', user: null, accesses: [], companyId: null, report: null, view: 'summary' };
 
   const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
@@ -78,7 +79,8 @@
       ['Matriculados',num(summary.enrolled),'Confirmados en Moodle',''],
       ['Activos',num(summary.active),`Acceso en últimos ${state.report?.inactive_days||cfg.inactiveDays} días`,'good'],
       ['Nunca ingresaron',num(summary.never_accessed),'Requieren seguimiento','alert'],
-      ['Completados',num(summary.completed),'Curso finalizado','good'],
+      ['Completados',num(summary.completed),'Cursos finalizados','good'],
+      ['Horas completadas',`${num(Number(summary.completed||0)*HOURS_PER_COURSE)} h`,`${HOURS_PER_COURSE} h por curso completado`,'good'],
       ['Avance promedio',pct(summary.average_progress),'Actividades completadas',''],
       ['Asistencia',pct(summary.attendance_average),'Registros esperados vs. realizados','']
     ];
@@ -96,8 +98,21 @@
     </article>`;
   }
 
+  function personKey(person){
+    if(Number(person.moodle_user_id||0)>0) return `m:${Number(person.moodle_user_id)}`;
+    const email=String(person.email||'').trim().toLowerCase(); if(email) return `e:${email}`;
+    const document=String(person.document||'').replace(/\s+/g,'').toUpperCase(); if(document) return `d:${document}`;
+    return `n:${String(person.fullname||'').trim().toLowerCase()}`;
+  }
   function flattenPeople(){
-    return (state.report?.courses||[]).flatMap(row=>(row.students||[]).map(person=>({...person,course_name:row.company_course?.moodle_course_name||'Curso',course_line_id:row.company_course?.id||''})));
+    const raw=(state.report?.courses||[]).flatMap(row=>(row.students||[]).map(person=>({...person,course_name:row.company_course?.moodle_course_name||'Curso',course_line_id:row.company_course?.id||''})));
+    const completedCourses=new Map();
+    raw.forEach(person=>{
+      const key=personKey(person);
+      if(!completedCourses.has(key)) completedCourses.set(key,new Set());
+      if(person.completed===true) completedCourses.get(key).add(person.course_line_id||person.course_name);
+    });
+    return raw.map(person=>({...person,training_hours:(completedCourses.get(personKey(person))?.size||0)*HOURS_PER_COURSE}));
   }
   function flattenAlerts(){ return flattenPeople().flatMap(p=>(p.alerts||[]).map(a=>({...a,fullname:p.fullname,course_name:p.course_name,email:p.email}))); }
   function accessBadge(person){
@@ -119,7 +134,7 @@
     if(q) rows=rows.filter(p=>[p.fullname,p.email,p.document].some(v=>String(v||'').toLowerCase().includes(q)));
     if(course) rows=rows.filter(p=>p.course_line_id===course);
     if(status==='completed') rows=rows.filter(p=>p.completed===true); else if(status==='attention') rows=rows.filter(p=>p.status==='attention'); else if(status) rows=rows.filter(p=>p.access_status===status);
-    $('peopleBody').innerHTML=rows.length?rows.map(p=>`<tr><td><span class="person-name">${esc(p.fullname)}</span><span class="person-sub">${esc(p.email||p.document||'')}</span></td><td>${esc(p.course_name)}</td><td>${accessBadge(p)}<span class="person-sub">${esc(dateFromEpoch(p.lastcourseaccess))}</span></td><td><strong>${pct(p.progress)}</strong><span class="person-sub">${p.activities_pending==null?'—':`${num(p.activities_pending)} pendientes`}</span></td><td>${pct(p.grade?.percentage)}</td><td>${attendanceValue(p)}</td><td>${p.status==='attention'?'<span class="badge warn">Atención</span>':p.completed?'<span class="badge ok">Finalizado</span>':'<span class="badge info">En curso</span>'}</td></tr>`).join(''):`<tr><td colspan="7"><div class="empty"><strong>Sin resultados</strong>Prueba con otro filtro.</div></td></tr>`;
+    $('peopleBody').innerHTML=rows.length?rows.map(p=>`<tr><td><span class="person-name">${esc(p.fullname)}</span><span class="person-sub">${esc(p.email||p.document||'')}</span></td><td>${esc(p.course_name)}</td><td>${accessBadge(p)}<span class="person-sub">${esc(dateFromEpoch(p.lastcourseaccess))}</span></td><td><strong>${pct(p.progress)}</strong><span class="person-sub">${p.activities_pending==null?'—':`${num(p.activities_pending)} pendientes`}</span></td><td>${pct(p.grade?.percentage)}</td><td>${attendanceValue(p)}</td><td><strong>${num(p.training_hours)} h</strong><span class="person-sub">${num(p.training_hours/HOURS_PER_COURSE)} curso(s) completado(s)</span></td><td>${p.status==='attention'?'<span class="badge warn">Atención</span>':p.completed?'<span class="badge ok">Finalizado</span>':'<span class="badge info">En curso</span>'}</td></tr>`).join(''):`<tr><td colspan="8"><div class="empty"><strong>Sin resultados</strong>Prueba con otro filtro.</div></td></tr>`;
   }
 
   function alertRow(a){ return `<div class="alert-row"><span class="alert-dot ${a.severity==='danger'?'danger':'warn'}"></span><div><strong>${esc(a.fullname)}</strong> · ${esc(a.course_name)}<div class="muted">${esc(a.message)}</div></div></div>`; }
@@ -130,7 +145,7 @@
   }
   function renderCourseReport(){
     const rows=state.report?.courses||[];
-    $('reportCourseBody').innerHTML=rows.length?rows.map(r=>{const s=r.summary||{};return `<tr><td><span class="person-name">${esc(r.company_course?.moodle_course_name||'Curso')}</span></td><td>${num(s.participants)}</td><td>${num(s.active)}</td><td>${num(s.completed)}</td><td>${pct(s.average_progress)}</td><td>${pct(s.average_grade)}</td><td>${pct(s.attendance_average)}</td><td>${num(s.alerts)}</td></tr>`;}).join(''):'<tr><td colspan="8"><div class="empty">No hay cursos disponibles.</div></td></tr>';
+    $('reportCourseBody').innerHTML=rows.length?rows.map(r=>{const s=r.summary||{};return `<tr><td><span class="person-name">${esc(r.company_course?.moodle_course_name||'Curso')}</span></td><td>${num(s.participants)}</td><td>${num(s.active)}</td><td>${num(s.completed)}</td><td>${num(Number(s.completed||0)*HOURS_PER_COURSE)} h</td><td>${pct(s.average_progress)}</td><td>${pct(s.average_grade)}</td><td>${pct(s.attendance_average)}</td><td>${num(s.alerts)}</td></tr>`;}).join(''):'<tr><td colspan="9"><div class="empty">No hay cursos disponibles.</div></td></tr>';
   }
   function renderReport(){
     const report=state.report||{summary:{},courses:[]}; const s=report.summary||{};
@@ -146,8 +161,8 @@
   }
 
   function csv(){
-    const rows=flattenPeople(); const header=['Empresa','Curso','Nombre','Correo','Documento','Matriculado','Último acceso','Estado acceso','Avance %','Nota %','Asistencia %','Completado','Alertas']; const company=state.report?.company?.nombre||'';
-    const data=[header,...rows.map(p=>[company,p.course_name,p.fullname,p.email||'',p.document||'',p.enrolled?'Sí':'No',dateFromEpoch(p.lastcourseaccess),p.access_status||'',p.progress??'',p.grade?.percentage??'',p.attendance?.available?p.attendance.percentage:'',p.completed?'Sí':'No',(p.alerts||[]).map(a=>a.message).join(' | ')])];
+    const rows=flattenPeople(); const header=['Empresa','Curso','Nombre','Correo','Documento','Matriculado','Último acceso','Estado acceso','Avance %','Nota %','Asistencia %','Horas acumuladas','Completado','Alertas']; const company=state.report?.company?.nombre||'';
+    const data=[header,...rows.map(p=>[company,p.course_name,p.fullname,p.email||'',p.document||'',p.enrolled?'Sí':'No',dateFromEpoch(p.lastcourseaccess),p.access_status||'',p.progress??'',p.grade?.percentage??'',p.attendance?.available?p.attendance.percentage:'',p.training_hours||0,p.completed?'Sí':'No',(p.alerts||[]).map(a=>a.message).join(' | ')])];
     const content='\ufeff'+data.map(row=>row.map(v=>`"${String(v??'').replace(/"/g,'""')}"`).join(';')).join('\r\n'); const blob=new Blob([content],{type:'text/csv;charset=utf-8'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=`avance-${company.toLowerCase().replace(/[^a-z0-9]+/g,'-')||'empresa'}.csv`; a.click(); URL.revokeObjectURL(url);
   }
 
