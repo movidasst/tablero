@@ -4,6 +4,7 @@ window.TABLERO_CONFIG = Object.freeze({
   dashboardFunction: 'tablero-empresa',
   adminFunction: 'tablero-admin',
   inactiveDays: 15,
+  trainingHoursPerCourse: 4,
   brand: {
     name: 'Academia Movida SST',
     slogan: 'De la Reacción a la Prevención.',
