@@ -79,7 +79,7 @@
         <section class="view" id="view-people">
           <div class="section-card"><div class="section-head"><h2>Empleados y avance</h2></div><div class="section-body">
             <div class="filters no-print"><input id="peopleSearch" type="search" placeholder="Buscar por nombre, correo o documento"><select id="peopleCourse"><option value="">Todos los cursos</option></select><select id="peopleStatus"><option value="">Todos los estados</option><option value="active">Activo</option><option value="inactive">Inactivo</option><option value="never">Nunca ingresó</option><option value="completed">Completado</option><option value="attention">Requiere atención</option></select></div>
-            <div class="table-wrap"><table class="data-table"><thead><tr><th>Persona</th><th>Curso</th><th>Acceso</th><th>Avance</th><th>Nota</th><th>Asistencia</th><th>Estado</th></tr></thead><tbody id="peopleBody"></tbody></table></div>
+            <div class="table-wrap"><table class="data-table"><thead><tr><th>Persona</th><th>Curso</th><th>Acceso</th><th>Avance</th><th>Nota</th><th>Asistencia</th><th>Horas acum.</th><th>Estado</th></tr></thead><tbody id="peopleBody"></tbody></table></div>
           </div></div>
         </section>
 
@@ -90,11 +90,11 @@
         <section class="view" id="view-report">
           <div class="report-print-title"><h1>Informe de avance de capacitación</h1><p id="printCompany"></p></div>
           <div class="report-hero">
-            <div class="report-summary"><h3>Informe ejecutivo</h3><p>Consolida participación, acceso, avance, calificaciones, asistencia y alertas de los cursos empresariales visibles en este tablero.</p></div>
+            <div class="report-summary"><h3>Informe ejecutivo</h3><p>Consolida participación, acceso, avance, calificaciones, asistencia, horas de capacitación completadas y alertas de los cursos empresariales visibles en este tablero.</p></div>
             <div class="page-actions no-print"><button class="btn btn-primary" id="printBtn" type="button">Guardar como PDF</button><button class="btn btn-secondary" id="csvBtn" type="button">Descargar CSV</button></div>
           </div>
           <div class="metric-grid" id="reportMetrics" style="margin-top:16px"></div>
-          <div class="section-card"><div class="section-head"><h2>Resumen por curso</h2></div><div class="section-body"><div class="table-wrap"><table class="data-table"><thead><tr><th>Curso</th><th>Participantes</th><th>Activos</th><th>Completados</th><th>Avance prom.</th><th>Nota prom.</th><th>Asistencia</th><th>Alertas</th></tr></thead><tbody id="reportCourseBody"></tbody></table></div></div></div>
+          <div class="section-card"><div class="section-head"><h2>Resumen por curso</h2></div><div class="section-body"><div class="table-wrap"><table class="data-table"><thead><tr><th>Curso</th><th>Participantes</th><th>Activos</th><th>Completados</th><th>Horas completadas</th><th>Avance prom.</th><th>Nota prom.</th><th>Asistencia</th><th>Alertas</th></tr></thead><tbody id="reportCourseBody"></tbody></table></div></div></div>
         </section>
       </div>
     </div>
