@@ -1,11 +1,8 @@
 (() => {
   const cfg = window.TABLERO_CONFIG;
-  const sb = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseKey, {
-    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
-  });
-
   const $ = id => document.getElementById(id);
-  const state = { session: null, accesses: [], companyId: null, report: null, view: 'summary' };
+  const state = { token: localStorage.getItem('tablero_portal_token') || '', user: null, accesses: [], companyId: null, report: null, view: 'summary' };
+
   const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
   const pct = value => value == null || !Number.isFinite(Number(value)) ? '—' : `${Number(value).toFixed(Number(value)%1?1:0)}%`;
   const num = value => new Intl.NumberFormat('es-ES').format(Number(value || 0));
@@ -23,20 +20,27 @@
     el.innerHTML=message?`<div class="status-box ${type}">${esc(message)}</div>`:'';
   }
   function loading(on){ $('loadingBlock').classList.toggle('hidden',!on); }
-  function setAuthMode(mode){
-    $('loginPanel').classList.toggle('hidden',mode!=='login');
-    $('passwordPanel').classList.toggle('hidden',mode!=='password');
-  }
+  function clearSession(){ state.token=''; state.user=null; state.accesses=[]; state.report=null; localStorage.removeItem('tablero_portal_token'); localStorage.removeItem('tablero_empresa'); }
 
-  async function invoke(name, body){
-    const { data, error } = await sb.functions.invoke(name,{body});
-    if(error) throw new Error(data?.error || error.message || 'No fue posible consultar el servicio.');
-    if(data?.ok===false) throw new Error(data.error || 'La operación no pudo completarse.');
+  async function invoke(body, authenticated=true){
+    const headers={'content-type':'application/json'};
+    if(cfg.supabaseKey) headers.apikey=cfg.supabaseKey;
+    if(authenticated && state.token) headers.authorization=`Bearer ${state.token}`;
+    let response;
+    try{
+      response=await fetch(`${cfg.supabaseUrl}/functions/v1/${cfg.dashboardFunction}`,{method:'POST',headers,body:JSON.stringify(body)});
+    }catch(_){ throw new Error('No fue posible conectar con el tablero.'); }
+    const data=await response.json().catch(()=>({}));
+    if(!response.ok || data?.ok===false){
+      if(response.status===401 && authenticated) clearSession();
+      throw new Error(data?.error || 'La operación no pudo completarse.');
+    }
     return data;
   }
 
   async function loadMe(){
-    const data=await invoke(cfg.dashboardFunction,{action:'me'});
+    const data=await invoke({action:'me'});
+    state.user=data.user||null;
     state.accesses=data.accesses||[];
     if(!state.accesses.length) throw new Error('Tu usuario no tiene una empresa asignada.');
     const saved=localStorage.getItem('tablero_empresa');
@@ -52,17 +56,20 @@
     const access=state.accesses.find(a=>a.empresa_id===state.companyId);
     $('companyName').textContent=access?.academia_empresas?.nombre || 'Empresa';
     $('printCompany').textContent=access?.academia_empresas?.nombre || '';
+    $('userAvatar').textContent=initials(state.user?.nombre || state.user?.email);
   }
 
   async function loadDashboard(force=false){
     loading(true); globalStatus();
     try{
-      const data=await invoke(cfg.dashboardFunction,{action:'dashboard',empresa_id:state.companyId,inactive_days:cfg.inactiveDays,force_refresh:force});
+      const data=await invoke({action:'dashboard',empresa_id:state.companyId,inactive_days:cfg.inactiveDays,force_refresh:force});
       state.report=data.report;
       renderReport();
       $('syncNote').textContent=`Datos ${data.cached?'en caché':'actualizados'} · ${dateIso(state.report?.generated_at)} · inactividad: ${state.report?.inactive_days || cfg.inactiveDays} días`;
-    }catch(error){ globalStatus(error.message); }
-    finally{ loading(false); }
+    }catch(error){
+      globalStatus(error.message);
+      if(!state.token) showLogin();
+    } finally { loading(false); }
   }
 
   function metricCards(summary={}){
@@ -92,9 +99,7 @@
   function flattenPeople(){
     return (state.report?.courses||[]).flatMap(row=>(row.students||[]).map(person=>({...person,course_name:row.company_course?.moodle_course_name||'Curso',course_line_id:row.company_course?.id||''})));
   }
-  function flattenAlerts(){
-    return flattenPeople().flatMap(p=>(p.alerts||[]).map(a=>({...a,fullname:p.fullname,course_name:p.course_name,email:p.email})));
-  }
+  function flattenAlerts(){ return flattenPeople().flatMap(p=>(p.alerts||[]).map(a=>({...a,fullname:p.fullname,course_name:p.course_name,email:p.email}))); }
   function accessBadge(person){
     if(person.completed) return '<span class="badge ok">Completado</span>';
     if(person.access_status==='active') return '<span class="badge info">Activo</span>';
@@ -104,88 +109,79 @@
   function attendanceValue(person){ const a=person.attendance||{}; return a.available ? pct(a.percentage) : '—'; }
 
   function renderPeopleFilters(){
-    const select=$('peopleCourse');
-    const current=select.value;
+    const select=$('peopleCourse'); const current=select.value;
     select.innerHTML='<option value="">Todos los cursos</option>'+(state.report?.courses||[]).map(r=>`<option value="${esc(r.company_course?.id||'')}">${esc(r.company_course?.moodle_course_name||'Curso')}</option>`).join('');
     if([...select.options].some(o=>o.value===current)) select.value=current;
   }
   function renderPeople(){
-    const q=String($('peopleSearch').value||'').toLowerCase().trim();
-    const course=$('peopleCourse').value; const status=$('peopleStatus').value;
+    const q=String($('peopleSearch').value||'').toLowerCase().trim(); const course=$('peopleCourse').value; const status=$('peopleStatus').value;
     let rows=flattenPeople();
     if(q) rows=rows.filter(p=>[p.fullname,p.email,p.document].some(v=>String(v||'').toLowerCase().includes(q)));
     if(course) rows=rows.filter(p=>p.course_line_id===course);
-    if(status==='completed') rows=rows.filter(p=>p.completed===true);
-    else if(status==='attention') rows=rows.filter(p=>p.status==='attention');
-    else if(status) rows=rows.filter(p=>p.access_status===status);
+    if(status==='completed') rows=rows.filter(p=>p.completed===true); else if(status==='attention') rows=rows.filter(p=>p.status==='attention'); else if(status) rows=rows.filter(p=>p.access_status===status);
     $('peopleBody').innerHTML=rows.length?rows.map(p=>`<tr><td><span class="person-name">${esc(p.fullname)}</span><span class="person-sub">${esc(p.email||p.document||'')}</span></td><td>${esc(p.course_name)}</td><td>${accessBadge(p)}<span class="person-sub">${esc(dateFromEpoch(p.lastcourseaccess))}</span></td><td><strong>${pct(p.progress)}</strong><span class="person-sub">${p.activities_pending==null?'—':`${num(p.activities_pending)} pendientes`}</span></td><td>${pct(p.grade?.percentage)}</td><td>${attendanceValue(p)}</td><td>${p.status==='attention'?'<span class="badge warn">Atención</span>':p.completed?'<span class="badge ok">Finalizado</span>':'<span class="badge info">En curso</span>'}</td></tr>`).join(''):`<tr><td colspan="7"><div class="empty"><strong>Sin resultados</strong>Prueba con otro filtro.</div></td></tr>`;
   }
 
   function alertRow(a){ return `<div class="alert-row"><span class="alert-dot ${a.severity==='danger'?'danger':'warn'}"></span><div><strong>${esc(a.fullname)}</strong> · ${esc(a.course_name)}<div class="muted">${esc(a.message)}</div></div></div>`; }
   function renderAlerts(){
-    const alerts=flattenAlerts();
-    $('alertCount').textContent=num(alerts.length);
+    const alerts=flattenAlerts(); $('alertCount').textContent=num(alerts.length);
     $('alertsList').innerHTML=alerts.length?alerts.map(alertRow).join(''):'<div class="empty"><strong>Sin alertas activas</strong>No hay situaciones que requieran seguimiento con los criterios actuales.</div>';
     $('summaryAlerts').innerHTML=alerts.length?alerts.slice(0,5).map(alertRow).join(''):'<div class="empty"><strong>Todo en orden</strong>No hay alertas activas.</div>';
   }
-
   function renderCourseReport(){
     const rows=state.report?.courses||[];
     $('reportCourseBody').innerHTML=rows.length?rows.map(r=>{const s=r.summary||{};return `<tr><td><span class="person-name">${esc(r.company_course?.moodle_course_name||'Curso')}</span></td><td>${num(s.participants)}</td><td>${num(s.active)}</td><td>${num(s.completed)}</td><td>${pct(s.average_progress)}</td><td>${pct(s.average_grade)}</td><td>${pct(s.attendance_average)}</td><td>${num(s.alerts)}</td></tr>`;}).join(''):'<tr><td colspan="8"><div class="empty">No hay cursos disponibles.</div></td></tr>';
   }
-
   function renderReport(){
     const report=state.report||{summary:{},courses:[]}; const s=report.summary||{};
-    $('metricGrid').innerHTML=metricCards(s); $('reportMetrics').innerHTML=metricCards(s);
-    $('summaryCourseCount').textContent=`${num(report.courses?.length||0)} cursos`;
-    const cards=(report.courses||[]).map(courseCard).join('');
-    const empty='<div class="empty"><strong>Aún no hay participantes</strong>Cuando se incorporen y matriculen empleados desde Gestión, su avance aparecerá aquí automáticamente.</div>';
-    $('summaryCourses').innerHTML=cards||empty; $('courseGrid').innerHTML=cards||empty;
-    renderPeopleFilters(); renderPeople(); renderAlerts(); renderCourseReport();
+    $('metricGrid').innerHTML=metricCards(s); $('reportMetrics').innerHTML=metricCards(s); $('summaryCourseCount').textContent=`${num(report.courses?.length||0)} cursos`;
+    const cards=(report.courses||[]).map(courseCard).join(''); const empty='<div class="empty"><strong>Aún no hay participantes</strong>Cuando se incorporen y matriculen empleados desde Gestión, su avance aparecerá aquí automáticamente.</div>';
+    $('summaryCourses').innerHTML=cards||empty; $('courseGrid').innerHTML=cards||empty; renderPeopleFilters(); renderPeople(); renderAlerts(); renderCourseReport();
   }
 
   function setView(view){
-    state.view=view;
-    document.querySelectorAll('.view').forEach(v=>v.classList.toggle('active',v.id===`view-${view}`));
-    document.querySelectorAll('.bottom-nav [data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===view));
+    state.view=view; document.querySelectorAll('.view').forEach(v=>v.classList.toggle('active',v.id===`view-${view}`)); document.querySelectorAll('.bottom-nav [data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===view));
     const copy={summary:['Resumen ejecutivo','Estado actual de la formación de tu equipo.'],courses:['Cursos contratados','Métricas y avance por cada curso empresarial.'],people:['Personas y avance','Seguimiento individual de los empleados asignados.'],alerts:['Alertas de seguimiento','Personas que requieren atención según acceso, avance y calificaciones.'],report:['Informe de avance','Resumen preparado para revisión y descarga.']};
-    $('pageTitle').textContent=copy[view][0]; $('pageSubtitle').textContent=copy[view][1];
-    window.scrollTo({top:0,behavior:'smooth'});
+    $('pageTitle').textContent=copy[view][0]; $('pageSubtitle').textContent=copy[view][1]; window.scrollTo({top:0,behavior:'smooth'});
   }
 
   function csv(){
     const rows=flattenPeople(); const header=['Empresa','Curso','Nombre','Correo','Documento','Matriculado','Último acceso','Estado acceso','Avance %','Nota %','Asistencia %','Completado','Alertas']; const company=state.report?.company?.nombre||'';
     const data=[header,...rows.map(p=>[company,p.course_name,p.fullname,p.email||'',p.document||'',p.enrolled?'Sí':'No',dateFromEpoch(p.lastcourseaccess),p.access_status||'',p.progress??'',p.grade?.percentage??'',p.attendance?.available?p.attendance.percentage:'',p.completed?'Sí':'No',(p.alerts||[]).map(a=>a.message).join(' | ')])];
-    const content='\ufeff'+data.map(row=>row.map(v=>`"${String(v??'').replace(/"/g,'""')}"`).join(';')).join('\r\n');
-    const blob=new Blob([content],{type:'text/csv;charset=utf-8'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=`avance-${company.toLowerCase().replace(/[^a-z0-9]+/g,'-')||'empresa'}.csv`; a.click(); URL.revokeObjectURL(url);
+    const content='\ufeff'+data.map(row=>row.map(v=>`"${String(v??'').replace(/"/g,'""')}"`).join(';')).join('\r\n'); const blob=new Blob([content],{type:'text/csv;charset=utf-8'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=`avance-${company.toLowerCase().replace(/[^a-z0-9]+/g,'-')||'empresa'}.csv`; a.click(); URL.revokeObjectURL(url);
   }
 
   async function enterApp(){
-    $('authShell').classList.add('hidden'); $('appShell').classList.remove('hidden');
-    const user=state.session?.user; $('userAvatar').textContent=initials(user?.email);
-    try{ await loadMe(); await loadDashboard(false); }catch(error){ globalStatus(error.message); }
+    $('authShell').classList.add('hidden'); $('appShell').classList.remove('hidden'); renderCompanySwitch(); await loadDashboard(false);
   }
-  function showLogin(){ $('appShell').classList.add('hidden'); $('authShell').classList.remove('hidden'); setAuthMode('login'); }
+  function showLogin(){ $('appShell').classList.add('hidden'); $('authShell').classList.remove('hidden'); }
 
-  async function init(){
-    $('authLogo').src=cfg.brand.logo; $('topLogo').src=cfg.brand.logo;
-    const {data}=await sb.auth.getSession(); state.session=data.session;
-    const params=new URLSearchParams(location.search); const passwordFlow=params.get('invite')==='1'||params.get('reset')==='1';
-    if(state.session && passwordFlow){ setAuthMode('password'); }
-    else if(state.session){ await enterApp(); }
-    else showLogin();
-  }
+  $('loginForm').addEventListener('submit',async e=>{
+    e.preventDefault(); statusBox('loginStatus');
+    const button=e.submitter; if(button) button.disabled=true;
+    try{
+      const data=await invoke({action:'login',email:$('loginEmail').value.trim(),password:$('loginPassword').value},false);
+      state.token=data.token; state.user=data.user||null; state.accesses=data.accesses||[]; localStorage.setItem('tablero_portal_token',state.token);
+      const saved=localStorage.getItem('tablero_empresa'); state.companyId=state.accesses.some(a=>a.empresa_id===saved)?saved:state.accesses[0]?.empresa_id||null;
+      if(!state.companyId) throw new Error('Tu usuario no tiene una empresa asignada.');
+      await enterApp();
+    }catch(error){ statusBox('loginStatus',error.message); }
+    finally{ if(button) button.disabled=false; }
+  });
 
-  $('loginForm').addEventListener('submit',async e=>{e.preventDefault();statusBox('loginStatus');const em=$('loginEmail').value.trim();const password=$('loginPassword').value;const {data,error}=await sb.auth.signInWithPassword({email:em,password});if(error)return statusBox('loginStatus',error.message);state.session=data.session;await enterApp();});
-  $('forgotBtn').addEventListener('click',async()=>{const em=$('loginEmail').value.trim();if(!em)return statusBox('loginStatus','Escribe primero tu correo.');const redirect=`${location.origin}${location.pathname}?reset=1`;const {error}=await sb.auth.resetPasswordForEmail(em,{redirectTo:redirect});statusBox('loginStatus',error?error.message:'Te enviamos un enlace para crear una nueva contraseña.',error?'error':'ok');});
-  $('passwordForm').addEventListener('submit',async e=>{e.preventDefault();statusBox('passwordStatus');const a=$('newPassword').value,b=$('newPassword2').value;if(a.length<8)return statusBox('passwordStatus','La contraseña debe tener al menos 8 caracteres.');if(a!==b)return statusBox('passwordStatus','Las contraseñas no coinciden.');const {error}=await sb.auth.updateUser({password:a});if(error)return statusBox('passwordStatus',error.message);history.replaceState({},'',location.pathname);const {data}=await sb.auth.getSession();state.session=data.session;await enterApp();});
-  $('logoutBtn').addEventListener('click',async()=>{await sb.auth.signOut();state.session=null;state.report=null;showLogin();});
+  $('logoutBtn').addEventListener('click',async()=>{ try{ if(state.token) await invoke({action:'logout'}); }catch(_){} clearSession(); showLogin(); });
   $('refreshBtn').addEventListener('click',()=>loadDashboard(true));
   $('companySwitch').addEventListener('change',async e=>{state.companyId=e.target.value;localStorage.setItem('tablero_empresa',state.companyId);renderCompanySwitch();await loadDashboard(false);});
   document.querySelector('.bottom-nav').addEventListener('click',e=>{const b=e.target.closest('[data-view]');if(b)setView(b.dataset.view);});
   document.addEventListener('click',e=>{const open=e.target.closest('[data-open-view]');if(open)setView(open.dataset.openView);const course=e.target.closest('[data-course-people]');if(course){$('peopleCourse').value=course.dataset.coursePeople;renderPeople();setView('people');}});
   ['peopleSearch','peopleCourse','peopleStatus'].forEach(id=>$(id).addEventListener(id==='peopleSearch'?'input':'change',renderPeople));
   $('csvBtn').addEventListener('click',csv); $('printBtn').addEventListener('click',()=>window.print());
-  sb.auth.onAuthStateChange((_event,session)=>{state.session=session;});
-  init().catch(error=>statusBox('loginStatus',error.message));
+
+  async function init(){
+    $('authLogo').src=cfg.brand.logo; $('topLogo').src=cfg.brand.logo;
+    if(!state.token){ showLogin(); return; }
+    try{ await loadMe(); await enterApp(); }
+    catch(_){ clearSession(); showLogin(); }
+  }
+  init();
 })();
