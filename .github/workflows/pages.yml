@@ -1,0 +1,56 @@
+name: Validate and deploy tablero
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate JavaScript
+        run: |
+          node --check config.js
+          node --check app.js
+          node --check admin.js
+      - name: Verify required files and privacy markers
+        run: |
+          test -f index.html
+          test -f admin.html
+          test -f CNAME
+          grep -q 'noindex,nofollow' index.html
+          grep -q 'noindex,nofollow' admin.html
+          grep -q 'tablero.movidasst.com' CNAME
+
+  deploy:
+    needs: validate
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: '.'
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
